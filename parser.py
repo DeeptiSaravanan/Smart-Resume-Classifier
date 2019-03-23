@@ -1,272 +1,305 @@
-# def makerawtext():
-	
+import os, sys
 
-# def cleanrawtext():
+import xml.etree.cElementTree as ET
 
+import re
 
-# def returnparsed():
+from collections import OrderedDict
 
-# import pypdf2
-# from pdfminer.pdfpage import PDFpage
+import json
 
-import PyPDF2
+from gensim.utils import simple_preprocess
 
-import docx
 
-import string
 
-import logging
+## Reader: ToDo: use another file reader.py to import various formats, convert to txt and clean docs, here, below
 
-logging.basicConfig(level=logging.DEBUG)
+def read_document(filepath):
 
-def fetch_pdf_page(file_name):
-
-  # try:
-
-    links = []
-
-    file_pointer = open(file_name,'rb')
-
-
-
-    # Setting up pdf document
-
-    pdf_pages =PyPDF2.PdfFileReader(file_pointer)
-    print(type(pdf_pages))
-
-    num_pages=pdf_pages.getNumPages()
-    #fetches URLs
-
-    for pageno in range(0,num_pages):
-      page=pdf_pages.getPage(pageno)
-      page_data=page.extractText()
-      print(type(page_data))
-      print(page_data)
-
-      # if 'Annots' in page.attrs.keys():
-
-      #   link_object_list = page.attrs['Annots']
-
-        # Due to implementation of pdfminer the link_object_list can either
-
-        # be the list directly or a PDF Object reference
-
-    #     if type(link_object_list) is not list:
-
-    #       link_object_list = link_object_list.resolve()
-
-    #     for link_object in link_object_list:
-
-    #       if type(link_object) is not dict:
-
-    #         link_object = link_object.resolve()
-
-    #       if link_object['A']['URI']:
-
-    #         links.append(link_object['A']['URI'])
-
-    # file_pointer.close()
-
-    # return links
-  # except (Exception, exception_instance):
-
-  #   logging.error('Error while fetching URLs : '+str(exception_instance))
-
-    return ''
-#Extract text from PDF
-
-
-def getPDFContent(path):
-
-    content = ""
-
-    # Load PDF into pyPDF
-
-    pdf = PyPDF2.PdfFileReader(open(path, "rb"))
-
-    # Iterate pages
-
-    for i in range(0, pdf.getNumPages()):
-
-        # Extract text from page and add to content
-
-        content += pdf.getPage(i).extractText() + "\n"
-
-    # Collapse whitespace
-
-    content = " ".join(content.replace(u"\xa0", " ").strip().split())
-
-    return content
-
-
-
-#Extract text from DOCX
-
-def getText(filename):
-
-    doc = docx.Document(filename)
-
-    fullText = ""
-
-    for para in doc.paragraphs:
-
-        fullText += para.text
-
-    return fullText
-
-
-
-#To store extracted resumes
-
-resume = ""
-
-#Select a path to the file - code needs os.path #to be addded
-
-filename = input("Enter file name / path : ")
-
-#Invoking document parsers based on file format
-
-#Note: for TXT - do a normal f.read()
-
-if filename.endswith(".pdf"):
+    if filename.endswith(".pdf"):
 
     resume = getPDFContent(filename).encode("ascii", "ignore") 
     print(type(resume))
 
 elif filename.endswith(".docx"):
-
      resume = getText(filename).encode("ascii", "ignore")
      print(type(resume))  
 
 else:
-
     print("File format is currently not supported")
-
     exit(0)
-
-
 
 print("processing..... \nplease wait....")
 
-#Importing NLTK for stopword removal and tokenizing
 
-from nltk.tokenize import word_tokenize
+   # f = open(filepath)
 
-from nltk.corpus import stopwords
+    #raw = f.read()
 
+    #f.close()
 
-
-#Tokenizing/ Filtering the resume off stopwords and punctuations 
-
-print("tokenizing the given file ......")
-
-tokens = word_tokenize(resume.decode("ascii"))
-
-punctuations = ['(',')',';',':','[',']',',']
-
-stop_words = stopwords.words('english')
-
-#storing the cleaned resume
-
-filtered = [w for w in tokens if not w in stop_words and  not w in string.punctuation]
-
-print("removing the stop words....\nCleaning the resumes....\nExtracting Text .......")
-
-print(filtered)
-
-#get the name from the resume
-
-name  = str(filtered[0])+' ' +str(filtered[1])
-
-print("Name : " + name)
+  #  return raw
 
 
 
-#using regular expressions we extract phone numbers and mail ids
-
-import re
-
-#get contact info - from resume
-
-#email
-
-email = ""
-
-match_mail = re.search(r'[\w\.-]+@[\w\.-]+', resume.decode("utf-8"))
-
-#handling the cases when mobile number is not given
-
-if(match_mail != None):
-
-    email = match_mail.group(0)
-
-print("Email : " + email)
+### Extraction Methods, called by string "name" as specified in config
 
 
 
-#mobile number
-# http://www.diveintopython.net/regular_expressions/phone_numbers.html
+# Regex based single value extractor
 
-mobile = []
+def univalue_extractor( document, section, subterms_dict, parsed_items_dict ):
 
-match_mobile = re.findall(r'((?:\(?\+91\)?)?\d{9})',resume.decode("utf-8"))
-if(match_mobile):
-	mobile.append(match_mobile)
+    retval = OrderedDict()
 
-match_mobile_2 = re.findall(r'(?:\w{3}-\w{3}-\w{4})',resume.decode("utf-8"))	
-if(match_mobile_2):
-	mobile.append(match_mobile_2)
+    get_section_lines = parsed_items_dict["Sections"].get(section)
 
-match_mobile_4 = re.findall(r'(?:(\d{3})\D*(\d{3})\D*(\d{4}))',resume.decode("utf-8"))	
-if(match_mobile_4):
-	mobile.append(match_mobile_4)
+    section_doc = "\n".join(get_section_lines)
 
-match_mobile_3 = re.findall(r'(?:\(\w{3}\)\w{3}-\w{4})',resume.decode("utf-8"))	
-if(match_mobile_3):
-	mobile.append(match_mobile_3)
+    if section_doc != "NA":
 
-#handling the cases when mobile number is not given
+        for node_tag, pattern_list in subterms_dict.items():
 
-if(mobile != None):
-	print("Mobile : ")
-	# print('[%s]' % ', '.join(map(str, mobile)))
-	for item in range(len(mobile)):
-		print('%s' % ', '.join(map(str, mobile[item])))
-	#print the url list
+            for pattern in pattern_list:
 
-else:
-	print("Mobile : " + " ")
+                regex_pattern = re.compile(r"{}".format(pattern))
 
+                match = regex_pattern.search(section_doc)
 
-# if(fetch_pdf_urls(filename)!=None):
-# 	url= fetch_pdf_urls(filename)
-# print("URL : " + url)
+                if match != None and len(match.groups()) > 0 and match.group(1) != "":
 
-# match_url = re.search(r'((?:/((([A-Za-z]{3,9}:(?:\/\/)?)(?:[-;:&=\+\$,\w]+@)?[A-Za-z0-9.-]+|(?:www.|[-;:&=\+\$,\w]+@)[A-Za-z0-9.-]+)((?:\/[\+~%\/.\w-_]*)?\??(?:[-\+=&;%@.\w_]*)#?(?:[\w]*))?)/)',resume.decode("utf-8"))
-url = re.findall(r'((?:/^(http?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/)/)',resume.decode("utf-8"))
+                    retval[node_tag] = match.group(1)
 
-# match_url = re.search(r'(?:\w{3}-\w{3}-\w{4})',resume.decode("utf-8"))	
+                    break
 
-
-# if(match_url == None):
-# 	match_url = re.search(r'(?:\(\w{3}\)\w{3}-\w{4})',resume.decode("utf-8"))	
-
-#handling the cases when mobile number is not given
-
-if(url != None):
-	print("URLs : ")
-	for item in range(len(url)):
-		print(url[item])
-	#print the url list
-
-else:
-	print("URLs : " + " ")
+    return retval
 
 
 
-parsed_resume = ' '.join(filtered)
+# Section Information value extractor
 
-# print("Parsed Resume in plain Text : ", parsed_resume)
+def section_value_extractor( document, section, subterms_dict, parsed_items_dict ):
 
-r = str(parsed_resume)
+    retval = OrderedDict()
 
+    single_section_lines = parsed_items_dict["Sections"].get(section)
+
+    for line in single_section_lines:
+
+        for node_tag, pattern_string in subterms_dict.items():
+
+            pattern_list = re.split(r",|:", pattern_string[0])
+
+            matches = [pattern for pattern in pattern_list if pattern in line]
+
+            if len(matches):
+
+                info_string = ", ".join(list(matches)) + " "
+
+                numeric_values = re.findall(r"([\d']{4})\s?-?(\d{2}[^\w+])?", line)
+
+                if len(numeric_values):
+
+                    value_list = list(numeric_values[0])
+
+                    info_string = info_string + "-".join([value for value in value_list if value != ""])
+
+                retval[node_tag] = info_string
+
+                break
+
+    return retval
+
+
+
+# Find if new section has started
+
+def is_new_section(line,subterms_dict):
+
+    new_section = ""
+
+    first_word_of_line = ""
+
+    regex_pattern = re.compile(r"^[\s]?(\w+)?[:|\s]")
+
+    match = regex_pattern.search(line)
+
+    if match != None and len(match.groups()) > 0 and match.group(1) != "":
+
+        first_word_of_line = match.group(1)
+
+        if first_word_of_line != None:
+
+            for node_tag, pattern_list in subterms_dict.items():
+
+                for pattern in pattern_list:
+
+                    if first_word_of_line in pattern:
+
+                        new_section = node_tag
+
+    return new_section
+
+
+
+# Segementation into sections, a sentence collector
+
+'''
+
+Read line by line
+
+Get first token, send it to section_finder(token, subterm_dict),returns section node_tag or ""
+
+Once section is found, make it current_section, and add sentences to it till, a next section is found
+
+'''
+
+def section_extractor( document, section, subterms_dict,parsed_items_dict ):
+
+    retval = OrderedDict()
+
+    if document != "NA":
+
+        current_section = ""
+
+        lines = re.split(r'[\n\r]+', document)
+
+        for line in lines:
+
+            new_section = is_new_section(line, subterms_dict)
+
+            if new_section != "":
+
+                current_section = new_section
+
+                continue
+
+            retval[current_section] = retval.get(current_section, []) + [line]
+
+
+
+    return retval
+
+
+
+#read config and store in equivalent internal list-of-dictionaries structure. No processing-parsing.
+
+def read_config( configfile ):
+
+
+
+    tree = ET.parse(configfile)
+
+    root = tree.getroot()
+
+
+
+    config = []
+
+    for child in root:
+
+        term = OrderedDict()
+
+        term["Term"] = child.get('name', "")
+
+        for level1 in child:
+
+            term["Method"] = level1.get('name', "")
+
+            term["Section"] = level1.get('section', "")
+
+            for level2 in level1:
+
+                term[level2.tag] = term.get(level2.tag, []) + [level2.text]
+
+
+
+        config.append(term)
+
+    jason_result = json.dumps(config, indent=4)
+
+    # print("Specifications:\n {}".format(jason_result))
+
+    return config
+
+
+
+# Processes docuemtn as per specifications in config and returns result in dictionary
+
+def parse_document(document, config):
+
+    parsed_items_dict = OrderedDict()
+
+
+
+    for term in config:
+
+        term_name = term.get('Term')
+
+        extraction_method = term.get('Method')
+
+        extraction_method_ref = globals()[extraction_method]
+
+        section = term.get("Section") # Optional
+
+        subterms_dict = OrderedDict()
+
+        for node_tag, pattern_list in term.items()[3:]:
+
+            subterms_dict[node_tag] = pattern_list
+
+        parsed_items_dict[term_name] = extraction_method_ref(document, section, subterms_dict, parsed_items_dict)
+
+
+
+    # key of section extractors is not to be printed
+
+    del parsed_items_dict["Sections"]
+
+    return parsed_items_dict
+
+
+
+###### MAIN ##############
+
+
+
+if len(sys.argv) != 3:
+
+    print("Usage: parser <configfile> <datafilesfolder>")
+
+    sys.exit(0)
+
+
+
+final_result = []
+
+
+
+configfile = "./" + sys.argv[1]
+
+config = read_config(configfile)
+
+
+
+datafilesdir = "./" + sys.argv[2] + "/"
+
+docs = os.listdir(datafilesdir)
+
+
+
+for filename in docs:
+
+    if os.path.isfile(datafilesdir + filename):
+
+        document = read_document(datafilesdir + filename)
+
+        result = parse_document(document, config)
+
+        final_result.append(result)
+
+
+
+jason_result = json.dumps(final_result, indent=4)
+
+print("Final Result:\n {}".format(jason_result))
